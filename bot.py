@@ -1,57 +1,54 @@
 import asyncio
+from telegram import Update
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+)
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 import json
 import os
-from datetime import datetime
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-TOKEN = os.getenv("TELEGRAM_TOKEN", "вставь_сюда_твой_токен")
+TOKEN = os.getenv("8141032644:AAHA1Ot-JvGXgXBgPrSQO609kZBjFYj9dWo")
 
 TASKS_FILE = "tasks.json"
 
 def load_tasks():
     if os.path.exists(TASKS_FILE):
-        with open(TASKS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return []
+        with open(TASKS_FILE, "r") as file:
+            return json.load(file)
+    return {}
 
 def save_tasks(tasks):
-    with open(TASKS_FILE, "w", encoding="utf-8") as f:
-        json.dump(tasks, f, indent=2, ensure_ascii=False)
+    with open(TASKS_FILE, "w") as file:
+        json.dump(tasks, file, indent=4)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Привет! Я бот-задачник. Напиши задачу в формате:\n\n/задача G4F Сделать ревизию")
+    await update.message.reply_text("Привет! Я бот для задач.")
 
 async def задача(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user.first_name
+    user = update.effective_user.username or update.effective_user.id
     text = " ".join(context.args)
     if not text:
-        await update.message.reply_text("Пожалуйста, добавь текст задачи.")
+        await update.message.reply_text("Добавь текст задачи после команды.")
         return
-    блок = text.split()[0]
-    описание = " ".join(text.split()[1:])
-    задача = {
-        "время": datetime.now().isoformat(),
-        "пользователь": user,
-        "блок": блок,
-        "описание": описание,
-    }
     tasks = load_tasks()
-    tasks.append(задача)
+    tasks.setdefault(user, []).append(text)
     save_tasks(tasks)
-    await update.message.reply_text(f"✅ Задача сохранена: {блок} — {описание}")
+    await update.message.reply_text(f"Задача сохранена: {text}")
 
-async def отчёт(context: ContextTypes.DEFAULT_TYPE):
+async def send_report(app):
     tasks = load_tasks()
-    if not tasks:
-        return
-    grouped = {}
-    for t in tasks:
-        grouped.setdefault(t["блок"], []).append(f"{t['пользователь']}: {t['описание']}")
-    текст = "\n\n".join(f"*{k}*\n" + "\n".join(v) for k, v in grouped.items())
-    await context.bot.send_message(chat_id=os.getenv("CHAT_ID", ""), text=текст, parse_mode="Markdown")
-    save_tasks([])  # Очистка задач после отчёта
+    for user, user_tasks in tasks.items():
+        try:
+            await app.bot.send_message(
+                chat_id=f"@{user}" if isinstance(user, str) else user,
+                text="📝 Твои задачи за неделю:\n" + "\n".join(f"– {t}" for t in user_tasks),
+            )
+        except Exception as e:
+            print(f"Не удалось отправить {user}: {e}")
+    save_tasks({})  # очищаем после отчёта
 
 async def run_bot():
     app = ApplicationBuilder().token(TOKEN).build()
@@ -59,10 +56,10 @@ async def run_bot():
     app.add_handler(CommandHandler("задача", задача))
 
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(отчёт, "cron", day_of_week="fri", hour=18, minute=0, args=[app.bot])
+    scheduler.add_job(send_report, CronTrigger(day_of_week="fri", hour=18, minute=0), args=[app])
     scheduler.start()
 
     await app.run_polling()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     asyncio.run(run_bot())
