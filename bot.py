@@ -10,7 +10,7 @@ from apscheduler.triggers.cron import CronTrigger
 import json
 import os
 
-TOKEN = os.getenv("8141032644:AAHA1Ot-JvGXgXBgPrSQO609kZBjFYj9dWo")
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "твой_токен")  # Заменишь на свой или задашь в Render
 
 TASKS_FILE = "tasks.json"
 
@@ -34,7 +34,7 @@ async def задача(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Добавь текст задачи после команды.")
         return
     tasks = load_tasks()
-    tasks.setdefault(user, []).append(text)
+    tasks.setdefault(str(user), []).append(text)
     save_tasks(tasks)
     await update.message.reply_text(f"Задача сохранена: {text}")
 
@@ -42,13 +42,14 @@ async def send_report(app):
     tasks = load_tasks()
     for user, user_tasks in tasks.items():
         try:
+            chat_id = f"@{user}" if not str(user).isdigit() else int(user)
             await app.bot.send_message(
-                chat_id=f"@{user}" if isinstance(user, str) else user,
+                chat_id=chat_id,
                 text="📝 Твои задачи за неделю:\n" + "\n".join(f"– {t}" for t in user_tasks),
             )
         except Exception as e:
             print(f"Не удалось отправить {user}: {e}")
-    save_tasks({})  # очищаем после отчёта
+    save_tasks({})  # очищаем задачи
 
 async def run_bot():
     app = ApplicationBuilder().token(TOKEN).build()
