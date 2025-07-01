@@ -1,110 +1,68 @@
-import json
 import asyncio
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler,
-    CallbackQueryHandler, ContextTypes, filters
-)
+import json
+import os
+from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-TOKEN = "твой_токен_бота"  # ЗАМЕНИ на свой токен
+TOKEN = os.getenv("TELEGRAM_TOKEN", "вставь_сюда_твой_токен")
 
-tasks = {
-    "Семья": [],
-    "G4F": [],
-    "ИИ": [],
-    "Chef.Expert": []
-}
-user_state = {}
+TASKS_FILE = "tasks.json"
 
-# Загрузка задач из файла, если есть
-try:
-    with open("tasks.json", "r", encoding="utf-8") as f:
-        tasks.update(json.load(f))
-except FileNotFoundError:
-    pass
+def load_tasks():
+    if os.path.exists(TASKS_FILE):
+        with open(TASKS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
+
+def save_tasks(tasks):
+    with open(TASKS_FILE, "w", encoding="utf-8") as f:
+        json.dump(tasks, f, indent=2, ensure_ascii=False)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Привет! Я помогу тебе с задачами. Напиши /add чтобы добавить задачу.")
+    await update.message.reply_text("Привет! Я бот-задачник. Напиши задачу в формате:\n\n/задача G4F Сделать ревизию")
 
-async def focus(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = "🎯 Фокус на неделю:\n"
-    for block, items in tasks.items():
-        if items:
-            text += f"\n{block}:\n" + "\n".join([f"- {item}" for item in items]) + "\n"
-    await update.message.reply_text(text or "Пока нет задач.")
+async def задача(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user.first_name
+    text = " ".join(context.args)
+    if not text:
+        await update.message.reply_text("Пожалуйста, добавь текст задачи.")
+        return
+    блок = text.split()[0]
+    описание = " ".join(text.split()[1:])
+    задача = {
+        "время": datetime.now().isoformat(),
+        "пользователь": user,
+        "блок": блок,
+        "описание": описание,
+    }
+    tasks = load_tasks()
+    tasks.append(задача)
+    save_tasks(tasks)
+    await update.message.reply_text(f"✅ Задача сохранена: {блок} — {описание}")
 
-async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [InlineKeyboardButton("Семья", callback_data='Семья'),
-         InlineKeyboardButton("G4F", callback_data='G4F')],
-        [InlineKeyboardButton("ИИ", callback_data='ИИ'),
-         InlineKeyboardButton("Chef.Expert", callback_data='Chef.Expert')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("В какой блок добавить задачу?", reply_markup=reply_markup)
-
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    block = query.data
-    user_state[user_id] = block
-    await query.message.reply_text(f"Что добавить в {block}?")
-
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.message.from_user.id
-    if user_id in user_state and user_state[user_id] != "init":
-        block = user_state.pop(user_id)
-        tasks[block].append(update.message.text)
-        with open("tasks.json", "w", encoding="utf-8") as f:
-            json.dump(tasks, f, ensure_ascii=False, indent=2)
-        await update.message.reply_text(f"✅ Добавлено в {block}: {update.message.text}")
-    else:
-        await update.message.reply_text("Напиши /add и выбери блок.")
-
-async def list_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = "📋 Все задачи:\n"
-    for block, items in tasks.items():
-        if items:
-            text += f"\n{block}:\n" + "\n".join([f"- {item}" for item in items]) + "\n"
-    await update.message.reply_text(text or "Задач нет.")
-
-async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await focus(update, context)
-
-async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    for key in tasks:
-        tasks[key] = []
-    with open("tasks.json", "w", encoding="utf-8") as f:
-        json.dump(tasks, f, ensure_ascii=False, indent=2)
-    await update.message.reply_text("🧹 Все задачи очищены.")
-
-async def scheduled_report(app):
-    for chat_id in user_state:
-        response = "🗓 Автоотчёт за неделю:\n"
-        for block, items in tasks.items():
-            if items:
-                response += f"\n{block}:\n" + "\n".join([f"- {item}" for item in items]) + "\n"
-        await app.bot.send_message(chat_id=chat_id, text=response.strip() or "Пока задач нет.")
+async def отчёт(context: ContextTypes.DEFAULT_TYPE):
+    tasks = load_tasks()
+    if not tasks:
+        return
+    grouped = {}
+    for t in tasks:
+        grouped.setdefault(t["блок"], []).append(f"{t['пользователь']}: {t['описание']}")
+    текст = "\n\n".join(f"*{k}*\n" + "\n".join(v) for k, v in grouped.items())
+    await context.bot.send_message(chat_id=os.getenv("CHAT_ID", ""), text=текст, parse_mode="Markdown")
+    save_tasks([])  # Очистка задач после отчёта
 
 async def run_bot():
     app = ApplicationBuilder().token(TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("focus", focus))
-    app.add_handler(CommandHandler("add", add_task))
-    app.add_handler(CommandHandler("list", list_tasks))
-    app.add_handler(CommandHandler("report", report))
-    app.add_handler(CommandHandler("clear", clear))
-    app.add_handler(CallbackQueryHandler(button_handler))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(CommandHandler("задача", задача))
 
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(lambda: scheduled_report(app), 'cron', day_of_week='fri', hour=18, minute=0)
+    scheduler.add_job(отчёт, "cron", day_of_week="fri", hour=18, minute=0, args=[app.bot])
     scheduler.start()
 
     await app.run_polling()
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     asyncio.run(run_bot())
