@@ -71,7 +71,7 @@ async def напомнить_всем(app):
                 print(f"Ошибка при отправке пользователю {user_id}: {e}")
 
 
-async def main():
+def main():
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", старт))
@@ -79,11 +79,11 @@ async def main():
     app.add_handler(CommandHandler("tasks", показать_задачи))
 
     планировщик = AsyncIOScheduler()
-    планировщик.add_job(lambda: напомнить_всем(app), CronTrigger(day_of_week="fri", hour=18, minute=0))
+    планировщик.add_job(lambda: asyncio.create_task(напомнить_всем(app)), CronTrigger(day_of_week="fri", hour=18, minute=0))
     планировщик.start()
 
-    await app.run_polling()
+    app.run_polling()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
