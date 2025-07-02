@@ -23,36 +23,37 @@ def save_tasks(tasks):
         json.dump(tasks, f, ensure_ascii=False, indent=2)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Привет! /add <текст> — сохранить задачу; /tasks — список.")
+    await update.message.reply_text("Привет! Пиши /add <текст> для новой задачи.")
 
 async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = " ".join(context.args)
-    if not text:
-        await update.message.reply_text("Пиши после /add текст задачи.")
+    user_id = str(update.message.from_user.id)
+    task_text = " ".join(context.args)
+    if not task_text:
+        await update.message.reply_text("Напиши текст после /add.")
         return
-    uid = str(update.effective_user.id)
     tasks = load_tasks()
-    tasks.setdefault(uid, []).append(text)
+    tasks.setdefault(user_id, []).append(task_text)
     save_tasks(tasks)
-    await update.message.reply_text(f"Задача добавлена.")
+    await update.message.reply_text(f"✅ Добавлено: {task_text}")
 
 async def show_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = str(update.effective_user.id)
-    tasks = load_tasks().get(uid, [])
+    user_id = str(update.message.from_user.id)
+    tasks = load_tasks().get(user_id, [])
     if not tasks:
-        await update.message.reply_text("Задач нет.")
+        await update.message.reply_text("У тебя пока нет задач.")
     else:
-        await update.message.reply_text("\n".join(f"{i+1}. {t}" for i, t in enumerate(tasks)))
+        await update.message.reply_text("Твои задачи:\n" +
+            "\n".join(f"{i+1}. {t}" for i, t in enumerate(tasks)))
 
-async def remind_tasks(app):
+async def remind_tasks(context: ContextTypes.DEFAULT_TYPE):
     tasks = load_tasks()
-    for uid, lst in tasks.items():
-        if lst:
-            text = "Напоминание:\n" + "\n".join(f"- {t}" for t in lst)
+    for uid, items in tasks.items():
+        if items:
+            text = "Напоминание:\n" + "\n".join(f"- {t}" for t in items)
             try:
-                await app.bot.send_message(chat_id=int(uid), text=text)
-            except:
-                pass
+                await context.bot.send_message(chat_id=int(uid), text=text)
+            except Exception as e:
+                print(f"Ошибка {e}")
 
 def main():
     app = ApplicationBuilder().token(TOKEN).build()
@@ -61,7 +62,7 @@ def main():
     app.add_handler(CommandHandler("tasks", show_tasks))
 
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(lambda: remind_tasks(app), CronTrigger(day_of_week="fri", hour=18, minute=0))
+    scheduler.add_job(remind_tasks, CronTrigger(day_of_week="fri", hour=18, minute=0), args=(app,))
     scheduler.start()
 
     app.run_polling()
