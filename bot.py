@@ -1,5 +1,4 @@
 import json
-from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from telegram import Update
@@ -41,10 +40,10 @@ async def tasks_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     tasks = load_tasks().get(user, [])
     if not tasks:
         return await update.message.reply_text("Нет задач")
-    lines = "\n".join(f"{i+1}. {t}" for i,t in enumerate(tasks))
+    lines = "\n".join(f"{i+1}. {t}" for i, t in enumerate(tasks))
     await update.message.reply_text(f"Твои задачи:\n{lines}")
 
-async def remind():
+async def remind(app):
     tasks = load_tasks()
     for user, lst in tasks.items():
         if lst:
@@ -54,18 +53,16 @@ async def remind():
             except:
                 pass
 
+async def post_init(app):
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(lambda: remind(app), CronTrigger(day_of_week="fri", hour=18, minute=0))
+    scheduler.start()
+
 def main():
-    global app
-    app = ApplicationBuilder().token(TOKEN).build()
+    app = ApplicationBuilder().token(TOKEN).post_init(post_init).build()
     app.add_handler(CommandHandler("start", start_cmd))
     app.add_handler(CommandHandler("add", add_cmd))
     app.add_handler(CommandHandler("tasks", tasks_cmd))
-
-    scheduler = AsyncIOScheduler()
-    scheduler.add_job(remind, CronTrigger(day_of_week="fri", hour=18, minute=0))
-
-    # Запускаем бот — после старта цикла инициализируем scheduler внутри него
-    app.post_init = lambda _: scheduler.start()
     app.run_polling()
 
 if __name__ == "__main__":
