@@ -60,7 +60,7 @@ async def show_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Твои задачи:\n{task_list}")
 
 
-async def remind_tasks():
+async def remind_tasks(app):
     tasks = load_tasks()
     for user_id, user_tasks in tasks.items():
         if user_tasks:
@@ -72,7 +72,6 @@ async def remind_tasks():
 
 
 async def run_bot():
-    global app
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -80,7 +79,7 @@ async def run_bot():
     app.add_handler(CommandHandler("задачи", show_tasks))
 
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(remind_tasks, CronTrigger(day_of_week="fri", hour=18, minute=0))
+    scheduler.add_job(lambda: asyncio.create_task(remind_tasks(app)), CronTrigger(day_of_week="fri", hour=18, minute=0))
     scheduler.start()
 
     await app.run_polling()
