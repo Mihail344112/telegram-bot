@@ -28,7 +28,7 @@ def save_tasks(tasks):
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Привет! Я бот-напоминалка. Напиши /добавить <текст>, чтобы сохранить задачу.")
+    await update.message.reply_text("Привет! Я бот-напоминалка. Напиши /add <текст>, чтобы сохранить задачу.")
 
 
 async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -36,7 +36,7 @@ async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     task_text = " ".join(context.args)
 
     if not task_text:
-        await update.message.reply_text("Пожалуйста, укажи текст задачи после команды /добавить.")
+        await update.message.reply_text("Пожалуйста, укажи текст задачи после команды /add.")
         return
 
     tasks = load_tasks()
@@ -60,7 +60,7 @@ async def show_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"Твои задачи:\n{task_list}")
 
 
-async def remind_tasks(app):
+async def remind_tasks():
     tasks = load_tasks()
     for user_id, user_tasks in tasks.items():
         if user_tasks:
@@ -72,14 +72,15 @@ async def remind_tasks(app):
 
 
 async def run_bot():
+    global app
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("добавить", add_task))
-    app.add_handler(CommandHandler("задачи", show_tasks))
+    app.add_handler(CommandHandler("add", add_task))
+    app.add_handler(CommandHandler("tasks", show_tasks))
 
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(lambda: asyncio.create_task(remind_tasks(app)), CronTrigger(day_of_week="fri", hour=18, minute=0))
+    scheduler.add_job(remind_tasks, CronTrigger(day_of_week="fri", hour=18, minute=0))
     scheduler.start()
 
     await app.run_polling()
