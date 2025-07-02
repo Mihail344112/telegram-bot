@@ -1,71 +1,89 @@
 import json
+from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
-    ContextTypes
+    ContextTypes,
 )
+import asyncio
 
 TOKEN = "8141032644:AAHA1Ot-JvGXgXBgPrSQO609kZBjFYj9dWo"
 TASKS_FILE = "tasks.json"
 
-def load_tasks():
+
+def загрузить_задачи():
     try:
-        with open(TASKS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except:
+        with open(TASKS_FILE, "r") as файл:
+            return json.load(файл)
+    except (FileNotFoundError, json.JSONDecodeError):
         return {}
 
-def save_tasks(tasks):
-    with open(TASKS_FILE, "w", encoding="utf-8") as f:
-        json.dump(tasks, f, ensure_ascii=False, indent=2)
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Привет! Пиши /add <текст> для новой задачи.")
+def сохранить_задачи(задачи):
+    with open(TASKS_FILE, "w") as файл:
+        json.dump(задачи, файл)
 
-async def add_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+async def старт(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Привет! Я бот-напоминалка. Напиши /add <текст>, чтобы сохранить задачу.")
+
+
+async def добавить(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
-    task_text = " ".join(context.args)
-    if not task_text:
-        await update.message.reply_text("Напиши текст после /add.")
+    текст_задачи = " ".join(context.args)
+
+    if not текст_задачи:
+        await update.message.reply_text("Напиши текст задачи после команды /add.")
         return
-    tasks = load_tasks()
-    tasks.setdefault(user_id, []).append(task_text)
-    save_tasks(tasks)
-    await update.message.reply_text(f"✅ Добавлено: {task_text}")
 
-async def show_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    задачи = загрузить_задачи()
+    user_tasks = задачи.get(user_id, [])
+    user_tasks.append(текст_задачи)
+    задачи[user_id] = user_tasks
+    сохранить_задачи(задачи)
+
+    await update.message.reply_text(f"Задача добавлена: {текст_задачи}")
+
+
+async def показать_задачи(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
-    tasks = load_tasks().get(user_id, [])
-    if not tasks:
+    задачи = загрузить_задачи()
+    user_tasks = задачи.get(user_id, [])
+
+    if not user_tasks:
         await update.message.reply_text("У тебя пока нет задач.")
     else:
-        await update.message.reply_text("Твои задачи:\n" +
-            "\n".join(f"{i+1}. {t}" for i, t in enumerate(tasks)))
+        список = "\n".join(f"{i+1}. {task}" for i, task in enumerate(user_tasks))
+        await update.message.reply_text(f"Твои задачи:\n{список}")
 
-async def remind_tasks(context: ContextTypes.DEFAULT_TYPE):
-    tasks = load_tasks()
-    for uid, items in tasks.items():
-        if items:
-            text = "Напоминание:\n" + "\n".join(f"- {t}" for t in items)
+
+async def напомнить_всем(app):
+    задачи = загрузить_задачи()
+    for user_id, user_tasks in задачи.items():
+        if user_tasks:
+            список = "\n".join(f"- {task}" for task in user_tasks)
             try:
-                await context.bot.send_message(chat_id=int(uid), text=text)
+                await app.bot.send_message(chat_id=int(user_id), text=f"Напоминание о задачах:\n{список}")
             except Exception as e:
-                print(f"Ошибка {e}")
+                print(f"Ошибка при отправке пользователю {user_id}: {e}")
 
-def main():
+
+async def main():
     app = ApplicationBuilder().token(TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("add", add_task))
-    app.add_handler(CommandHandler("tasks", show_tasks))
 
-    scheduler = AsyncIOScheduler()
-    scheduler.add_job(remind_tasks, CronTrigger(day_of_week="fri", hour=18, minute=0), args=(app,))
-    scheduler.start()
+    app.add_handler(CommandHandler("start", старт))
+    app.add_handler(CommandHandler("add", добавить))
+    app.add_handler(CommandHandler("tasks", показать_задачи))
 
-    app.run_polling()
+    планировщик = AsyncIOScheduler()
+    планировщик.add_job(lambda: напомнить_всем(app), CronTrigger(day_of_week="fri", hour=18, minute=0))
+    планировщик.start()
+
+    await app.run_polling()
+
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
